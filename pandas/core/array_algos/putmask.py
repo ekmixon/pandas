@@ -96,10 +96,7 @@ def putmask_smart(values: np.ndarray, mask: np.ndarray, new) -> np.ndarray:
         elif not (is_float_dtype(nn.dtype) or is_integer_dtype(nn.dtype)):
             # only compare integers/floats
             pass
-        elif not (is_float_dtype(values.dtype) or is_integer_dtype(values.dtype)):
-            # only compare integers/floats
-            pass
-        else:
+        elif (is_float_dtype(values.dtype) or is_integer_dtype(values.dtype)):
 
             # we ignore ComplexWarning here
             with warnings.catch_warnings(record=True):
@@ -211,9 +208,5 @@ def setitem_datetimelike_compat(values: np.ndarray, num_set: int, other):
         if isinstance(dtype, np.dtype) and dtype.kind in ["m", "M"]:
             # https://github.com/numpy/numpy/issues/12550
             #  timedelta64 will incorrectly cast to int
-            if not is_list_like(other):
-                other = [other] * num_set
-            else:
-                other = list(other)
-
+            other = list(other) if is_list_like(other) else [other] * num_set
     return other

@@ -112,9 +112,11 @@ class NDArrayBackedExtensionArray(NDArrayBacked, ExtensionArray):
     def equals(self, other) -> bool:
         if type(self) is not type(other):
             return False
-        if not is_dtype_equal(self.dtype, other.dtype):
-            return False
-        return bool(array_equivalent(self._ndarray, other._ndarray))
+        return (
+            bool(array_equivalent(self._ndarray, other._ndarray))
+            if is_dtype_equal(self.dtype, other.dtype)
+            else False
+        )
 
     def _values_for_argsort(self) -> np.ndarray:
         return self._ndarray
@@ -252,12 +254,10 @@ class NDArrayBackedExtensionArray(NDArrayBacked, ExtensionArray):
     # Reductions
 
     def _reduce(self, name: str, *, skipna: bool = True, **kwargs):
-        meth = getattr(self, name, None)
-        if meth:
+        if meth := getattr(self, name, None):
             return meth(skipna=skipna, **kwargs)
-        else:
-            msg = f"'{type(self).__name__}' does not implement reduction '{name}'"
-            raise TypeError(msg)
+        msg = f"'{type(self).__name__}' does not implement reduction '{name}'"
+        raise TypeError(msg)
 
     def _wrap_reduction_result(self, axis: int | None, result):
         if axis is None or self.ndim == 1:
@@ -383,12 +383,7 @@ class NDArrayBackedExtensionArray(NDArrayBacked, ExtensionArray):
             Series,
         )
 
-        if dropna:
-            # error: Unsupported operand type for ~ ("ExtensionArray")
-            values = self[~self.isna()]._ndarray  # type: ignore[operator]
-        else:
-            values = self._ndarray
-
+        values = self[~self.isna()]._ndarray if dropna else self._ndarray
         result = value_counts(values, sort=False, dropna=dropna)
 
         index_arr = self._from_backing_data(np.asarray(result.index._data))

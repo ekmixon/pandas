@@ -80,14 +80,15 @@ def compare_or_regex_search(
                 f"Cannot compare types {repr(type_names[0])} and {repr(type_names[1])}"
             )
 
-    if not regex:
-        op = lambda x: operator.eq(x, b)
-    else:
-        op = np.vectorize(
+    op = (
+        np.vectorize(
             lambda x: bool(re.search(b, x))
             if isinstance(x, str) and isinstance(b, (str, Pattern))
             else False
         )
+        if regex
+        else (lambda x: operator.eq(x, b))
+    )
 
     # GH#32621 use mask to avoid comparing to NAs
     if isinstance(a, np.ndarray):
@@ -144,10 +145,7 @@ def replace_regex(values: ArrayLike, rx: re.Pattern, value, mask: np.ndarray | N
         # value is guaranteed to be a string here, s can be either a string
         # or null if it's null it gets returned
         def re_replacer(s):
-            if is_re(rx) and isinstance(s, str):
-                return rx.sub(value, s)
-            else:
-                return s
+            return rx.sub(value, s) if is_re(rx) and isinstance(s, str) else s
 
     f = np.vectorize(re_replacer, otypes=[np.object_])
 

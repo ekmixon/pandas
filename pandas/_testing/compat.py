@@ -6,8 +6,4 @@ from pandas import DataFrame
 
 
 def get_dtype(obj):
-    if isinstance(obj, DataFrame):
-        # Note: we are assuming only one column
-        return obj.dtypes.iat[0]
-    else:
-        return obj.dtype
+    return obj.dtypes.iat[0] if isinstance(obj, DataFrame) else obj.dtype

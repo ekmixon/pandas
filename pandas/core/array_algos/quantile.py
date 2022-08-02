@@ -41,14 +41,11 @@ def quantile_compat(values: ArrayLike, qs: np.ndarray, interpolation: str) -> Ar
         #  this is temporary pending discussion in GH#41428
         from pandas.core.arrays import BaseMaskedArray
 
-        if isinstance(values, BaseMaskedArray):
-            # e.g. IntegerArray, does not implement _from_factorized
-            out = _quantile_ea_fallback(values, qs, interpolation)
-
-        else:
-            out = _quantile_ea_compat(values, qs, interpolation)
-
-        return out
+        return (
+            _quantile_ea_fallback(values, qs, interpolation)
+            if isinstance(values, BaseMaskedArray)
+            else _quantile_ea_compat(values, qs, interpolation)
+        )
 
 
 def _quantile_with_mask(
@@ -181,5 +178,4 @@ def _quantile_ea_fallback(
     assert res.ndim == 2
     assert res.shape[0] == 1
     res = res[0]
-    out = type(values)._from_sequence(res, dtype=values.dtype)
-    return out
+    return type(values)._from_sequence(res, dtype=values.dtype)

@@ -183,10 +183,7 @@ class Resampler(BaseGroupBy, PandasObject):
             return object.__getattribute__(self, attr)
         if attr in self._attributes:
             return getattr(self.groupby, attr)
-        if attr in self.obj:
-            return self[attr]
-
-        return object.__getattribute__(self, attr)
+        return self[attr] if attr in self.obj else object.__getattribute__(self, attr)
 
     # error: Signature of "obj" incompatible with supertype "BaseGroupBy"
     @property
@@ -407,25 +404,11 @@ class Resampler(BaseGroupBy, PandasObject):
                 result = grouped._aggregate_item_by_item(how, *args, **kwargs)
             else:
                 result = grouped.aggregate(how, *args, **kwargs)
-        except DataError:
+        except (DataError, AttributeError, KeyError):
             # got TypeErrors on aggregation
             result = grouped.apply(how, *args, **kwargs)
-        except (AttributeError, KeyError):
-            # we have a non-reducing function; try to evaluate
-            # alternatively we want to evaluate only a column of the input
-
-            # test_apply_to_one_column_of_df the function being applied references
-            #  a DataFrame column, but aggregate_item_by_item operates column-wise
-            #  on Series, raising AttributeError or KeyError
-            #  (depending on whether the column lookup uses getattr/__getitem__)
-            result = grouped.apply(how, *args, **kwargs)
-
         except ValueError as err:
-            if "Must produce aggregated value" in str(err):
-                # raised in _aggregate_named
-                # see test_apply_without_aggregation, test_apply_with_mutated_index
-                pass
-            else:
+            if "Must produce aggregated value" not in str(err):
                 raise
 
             # we have a non-reducing function
@@ -923,10 +906,7 @@ class Resampler(BaseGroupBy, PandasObject):
         if not len(self.ax):
             from pandas import Series
 
-            if self._selected_obj.ndim == 1:
-                name = self._selected_obj.name
-            else:
-                name = None
+            name = self._selected_obj.name if self._selected_obj.ndim == 1 else None
             result = Series([], index=result.index, dtype="int64", name=name)
         return result
 
@@ -1089,10 +1069,9 @@ class _GroupByMixin(PandasObject):
         ):
             selection = key
 
-        new_rs = type(self)(
+        return type(self)(
             subset, groupby=groupby, parent=self, selection=selection, **kwargs
         )
-        return new_rs
 
 
 class DatetimeIndexResampler(Resampler):
@@ -1152,10 +1131,7 @@ class DatetimeIndexResampler(Resampler):
 
         The range of a new index should not be outside specified range
         """
-        if self.closed == "right":
-            binner = binner[1:]
-        else:
-            binner = binner[:-1]
+        binner = binner[1:] if self.closed == "right" else binner[:-1]
         return binner
 
     def _upsample(self, method, limit=None, fill_value=None):
@@ -1451,23 +1427,16 @@ class TimeGrouper(Grouper):
                 closed = "right"
             if label is None:
                 label = "right"
+        elif origin in ["end", "end_day"]:
+            if closed is None:
+                closed = "right"
+            if label is None:
+                label = "right"
         else:
-            # The backward resample sets ``closed`` to ``'right'`` by default
-            # since the last value should be considered as the edge point for
-            # the last bin. When origin in "end" or "end_day", the value for a
-            # specific ``Timestamp`` index stands for the resample result from
-            # the current ``Timestamp`` minus ``freq`` to the current
-            # ``Timestamp`` with a right close.
-            if origin in ["end", "end_day"]:
-                if closed is None:
-                    closed = "right"
-                if label is None:
-                    label = "right"
-            else:
-                if closed is None:
-                    closed = "left"
-                if label is None:
-                    label = "left"
+            if closed is None:
+                closed = "left"
+            if label is None:
+                label = "left"
 
         self.closed = closed
         self.label = label
@@ -1979,25 +1948,10 @@ def _adjust_dates_anchored(
     loffset = (last.value - origin_nanos) % freq.nanos
 
     if closed == "right":
-        if foffset > 0:
-            # roll back
-            fresult = first.value - foffset
-        else:
-            fresult = first.value - freq.nanos
-
-        if loffset > 0:
-            # roll forward
-            lresult = last.value + (freq.nanos - loffset)
-        else:
-            # already the end of the road
-            lresult = last.value
+        fresult = first.value - foffset if foffset > 0 else first.value - freq.nanos
+        lresult = last.value + (freq.nanos - loffset) if loffset > 0 else last.value
     else:  # closed == 'left'
-        if foffset > 0:
-            fresult = first.value - foffset
-        else:
-            # start of the road
-            fresult = first.value
-
+        fresult = first.value - foffset if foffset > 0 else first.value
         if loffset > 0:
             # roll forward
             lresult = last.value + (freq.nanos - loffset)

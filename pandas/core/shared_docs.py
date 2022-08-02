@@ -1,10 +1,7 @@
 from __future__ import annotations
 
-_shared_docs: dict[str, str] = {}
-
-_shared_docs[
-    "aggregate"
-] = """
+_shared_docs: dict[str, str] = {
+    "aggregate": """
 Aggregate using one or more operations over the specified axis.
 
 Parameters
@@ -46,11 +43,8 @@ behavior or errors and are not supported. See :ref:`gotchas.udf-mutation`
 for more details.
 
 A passed user-defined-function will be passed a Series for evaluation.
-{examples}"""
-
-_shared_docs[
-    "compare"
-] = """
+{examples}""",
+    "compare": """
 Compare to another {klass} and show the differences.
 
 .. versionadded:: 1.1.0
@@ -75,11 +69,8 @@ keep_shape : bool, default False
 keep_equal : bool, default False
     If true, the result keeps values that are equal.
     Otherwise, equal values are shown as NaNs.
-"""
-
-_shared_docs[
-    "groupby"
-] = """
+""",
+    "groupby": """
 Group %(klass)s using a mapper or by a Series of columns.
 
 A groupby operation involves some combination of splitting the
@@ -144,11 +135,8 @@ Notes
 -----
 See the `user guide
 <https://pandas.pydata.org/pandas-docs/stable/groupby.html>`__ for more.
-"""
-
-_shared_docs[
-    "melt"
-] = """
+""",
+    "melt": """
 Unpivot a DataFrame from wide to long format, optionally leaving identifiers set.
 
 This function is useful to massage a DataFrame into a format where one
@@ -258,11 +246,8 @@ If you have multi-index columns:
 0      a          B          E      1
 1      b          B          E      3
 2      c          B          E      5
-"""
-
-_shared_docs[
-    "transform"
-] = """
+""",
+    "transform": """
 Call ``func`` on self producing a {klass} with transformed values.
 
 Produced {klass} will have same axis length as self.
@@ -387,20 +372,14 @@ Name: Data, dtype: int64
 4  2    m    4
 5  2    n    4
 6  2    n    4
-"""
-
-_shared_docs[
-    "storage_options"
-] = """storage_options : dict, optional
+""",
+    "storage_options": """storage_options : dict, optional
     Extra options that make sense for a particular storage connection, e.g.
     host, port, username, password, etc. For HTTP(S) URLs the key-value pairs
     are forwarded to ``urllib`` as header options. For other URLs (e.g.
     starting with "s3://", and "gcs://") the key-value pairs are forwarded to
-    ``fsspec``. Please see ``fsspec`` and ``urllib`` for more details."""
-
-_shared_docs[
-    "replace"
-] = """
+    ``fsspec``. Please see ``fsspec`` and ``urllib`` for more details.""",
+    "replace": """
     Replace values given in `to_replace` with `value`.
 
     Values of the {klass} are replaced with other values dynamically.
@@ -674,4 +653,5 @@ _shared_docs[
     3     b
     4     b
     dtype: object
-"""
+""",
+}

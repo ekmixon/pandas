@@ -416,10 +416,7 @@ def extract_array(
     """
     if isinstance(obj, (ABCIndex, ABCSeries)):
         if isinstance(obj, ABCRangeIndex):
-            if extract_range:
-                return obj._values
-            return obj
-
+            return obj._values if extract_range else obj
         obj = obj.array
 
     if extract_numpy and isinstance(obj, ABCPandasArray):
@@ -563,7 +560,7 @@ def sanitize_array(
         # TODO: non-standard array-likes we can convert to ndarray more efficiently?
         data = list(data)
 
-        if dtype is not None or len(data) == 0:
+        if dtype is not None or not data:
             subarr = _try_cast(data, dtype, copy, raise_cast_failure)
         else:
             subarr = maybe_convert_platform(data)
@@ -646,14 +643,10 @@ def _sanitize_str_dtypes(
 
     # This is to prevent mixed-type Series getting all casted to
     # NumPy string type, e.g. NaN --> '-1#IND'.
-    if issubclass(result.dtype.type, str):
-        # GH#16605
-        # If not empty convert the data to dtype
-        # GH#19853: If data is a scalar, result has already the result
-        if not lib.is_scalar(data):
-            if not np.all(isna(data)):
-                data = np.array(data, dtype=dtype, copy=False)
-            result = np.array(data, dtype=object, copy=copy)
+    if issubclass(result.dtype.type, str) and not lib.is_scalar(data):
+        if not np.all(isna(data)):
+            data = np.array(data, dtype=dtype, copy=False)
+        result = np.array(data, dtype=object, copy=copy)
     return result
 
 
@@ -662,9 +655,8 @@ def _maybe_repeat(arr: ArrayLike, index: Index | None) -> ArrayLike:
     If we have a length-1 array and an index describing how long we expect
     the result to be, repeat the array.
     """
-    if index is not None:
-        if 1 == len(arr) != len(index):
-            arr = arr.repeat(len(index))
+    if index is not None and 1 == len(arr) != len(index):
+        arr = arr.repeat(len(index))
     return arr
 
 
@@ -759,19 +751,18 @@ def _try_cast(
     except (ValueError, TypeError):
         if raise_cast_failure:
             raise
-        else:
-            # we only get here with raise_cast_failure False, which means
-            #  called via the DataFrame constructor
-            # GH#24435
-            warnings.warn(
-                f"Could not cast to {dtype}, falling back to object. This "
-                "behavior is deprecated. In a future version, when a dtype is "
-                "passed to 'DataFrame', either all columns will be cast to that "
-                "dtype, or a TypeError will be raised",
-                FutureWarning,
-                stacklevel=7,
-            )
-            subarr = np.array(arr, dtype=object, copy=copy)
+        # we only get here with raise_cast_failure False, which means
+        #  called via the DataFrame constructor
+        # GH#24435
+        warnings.warn(
+            f"Could not cast to {dtype}, falling back to object. This "
+            "behavior is deprecated. In a future version, when a dtype is "
+            "passed to 'DataFrame', either all columns will be cast to that "
+            "dtype, or a TypeError will be raised",
+            FutureWarning,
+            stacklevel=7,
+        )
+        subarr = np.array(arr, dtype=object, copy=copy)
     return subarr
 
 

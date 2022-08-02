@@ -352,10 +352,7 @@ def length_of_indexer(indexer, target=None) -> int:
         if isinstance(indexer, list):
             indexer = np.array(indexer)
 
-        if indexer.dtype == bool:
-            # GH#25774
-            return indexer.sum()
-        return len(indexer)
+        return indexer.sum() if indexer.dtype == bool else len(indexer)
     elif isinstance(indexer, range):
         return (indexer.stop - indexer.start) // indexer.step
     elif not is_list_like_indexer(indexer):
@@ -429,10 +426,8 @@ def check_key_length(columns: Index, key, value: DataFrame):
     if columns.is_unique:
         if len(value.columns) != len(key):
             raise ValueError("Columns must be same length as key")
-    else:
-        # Missing keys in columns are represented as -1
-        if len(columns.get_indexer_non_unique(key)[0]) != len(value.columns):
-            raise ValueError("Columns must be same length as key")
+    elif len(columns.get_indexer_non_unique(key)[0]) != len(value.columns):
+        raise ValueError("Columns must be same length as key")
 
 
 # -----------------------------------------------------------
@@ -535,16 +530,11 @@ def check_array_indexer(array: AnyArrayLike, indexer: Any) -> Any:
     """
     from pandas.core.construction import array as pd_array
 
-    # whatever is not an array-like is returned as-is (possible valid array
-    # indexers that are not array-like: integer, slice, Ellipsis, None)
-    # In this context, tuples are not considered as array-like, as they have
-    # a specific meaning in indexing (multi-dimensional indexing)
-    if is_list_like(indexer):
-        if isinstance(indexer, tuple):
-            return indexer
-    else:
+    if not is_list_like(indexer):
         return indexer
 
+    if isinstance(indexer, tuple):
+        return indexer
     # convert list-likes to array
     if not is_array_like(indexer):
         indexer = pd_array(indexer)

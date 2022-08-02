@@ -345,9 +345,7 @@ def relabel_result(
         # mean  1.5
         # mean  1.5
         if reorder_mask:
-            fun = [
-                com.get_callable_name(f) if not isinstance(f, str) else f for f in fun
-            ]
+            fun = [f if isinstance(f, str) else com.get_callable_name(f) for f in fun]
             col_idx_order = Index(s.index).get_indexer(fun)
             s = s[col_idx_order]
 

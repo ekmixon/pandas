@@ -330,8 +330,7 @@ class DatetimeLikeArrayMixin(OpsMixin, NDArrayBackedExtensionArray):
         """
         Find the `freq` attribute to assign to the result of a __getitem__ lookup.
         """
-        is_period = is_period_dtype(self.dtype)
-        if is_period:
+        if is_period := is_period_dtype(self.dtype):
             freq = self.freq
         elif self.ndim != 1:
             freq = None
@@ -361,13 +360,7 @@ class DatetimeLikeArrayMixin(OpsMixin, NDArrayBackedExtensionArray):
         key: int | Sequence[int] | Sequence[bool] | slice,
         value: NaTType | Any | Sequence[Any],
     ) -> None:
-        # I'm fudging the types a bit here. "Any" above really depends
-        # on type(self). For PeriodArray, it's Period (or stuff coercible
-        # to a period in from_sequence). For DatetimeArray, it's Timestamp...
-        # I don't know if mypy can do that, possibly with Generics.
-        # https://mypy.readthedocs.io/en/latest/generics.html
-        no_op = check_setitem_lengths(key, value, self)
-        if no_op:
+        if no_op := check_setitem_lengths(key, value, self):
             return
 
         super().__setitem__(key, value)
@@ -388,11 +381,10 @@ class DatetimeLikeArrayMixin(OpsMixin, NDArrayBackedExtensionArray):
         if is_object_dtype(dtype):
             return self._box_values(self.asi8.ravel()).reshape(self.shape)
         elif is_string_dtype(dtype) and not is_categorical_dtype(dtype):
-            if is_extension_array_dtype(dtype):
-                arr_cls = dtype.construct_array_type()
-                return arr_cls._from_sequence(self, dtype=dtype, copy=copy)
-            else:
+            if not is_extension_array_dtype(dtype):
                 return self._format_native_types()
+            arr_cls = dtype.construct_array_type()
+            return arr_cls._from_sequence(self, dtype=dtype, copy=copy)
         elif is_integer_dtype(dtype):
             # we deliberately ignore int32 vs. int64 here.
             # See https://github.com/pandas-dev/pandas/issues/24381 for more.
@@ -553,10 +545,7 @@ class DatetimeLikeArrayMixin(OpsMixin, NDArrayBackedExtensionArray):
                 other = self._validate_listlike(other, allow_object=True)
                 self._check_compatible_with(other)
             except (TypeError, IncompatibleFrequency) as err:
-                if is_object_dtype(getattr(other, "dtype", None)):
-                    # We will have to operate element-wise
-                    pass
-                else:
+                if not is_object_dtype(getattr(other, "dtype", None)):
                     raise InvalidComparison(other) from err
 
         return other
@@ -644,12 +633,7 @@ class DatetimeLikeArrayMixin(OpsMixin, NDArrayBackedExtensionArray):
             msg = self._validation_error_message(value, allow_listlike)
             raise TypeError(msg)
 
-        if not unbox:
-            # NB: In general NDArrayBackedExtensionArray will unbox here;
-            #  this option exists to prevent a performance hit in
-            #  TimedeltaIndex.get_loc
-            return value
-        return self._unbox_scalar(value, setitem=setitem)
+        return self._unbox_scalar(value, setitem=setitem) if unbox else value
 
     def _validation_error_message(self, value, allow_listlike: bool = False) -> str:
         """
@@ -686,17 +670,18 @@ class DatetimeLikeArrayMixin(OpsMixin, NDArrayBackedExtensionArray):
             # We treat empty list as our own dtype.
             return type(self)._from_sequence([], dtype=self.dtype)
 
-        if hasattr(value, "dtype") and value.dtype == object:
-            # `array` below won't do inference if value is an Index or Series.
-            #  so do so here.  in the Index case, inferred_type may be cached.
-            if lib.infer_dtype(value) in self._infer_matches:
-                try:
-                    value = type(self)._from_sequence(value)
-                except (ValueError, TypeError):
-                    if allow_object:
-                        return value
-                    msg = self._validation_error_message(value, True)
-                    raise TypeError(msg)
+        if (
+            hasattr(value, "dtype")
+            and value.dtype == object
+            and lib.infer_dtype(value) in self._infer_matches
+        ):
+            try:
+                value = type(self)._from_sequence(value)
+            except (ValueError, TypeError):
+                if allow_object:
+                    return value
+                msg = self._validation_error_message(value, True)
+                raise TypeError(msg)
 
         # Do type inference if necessary up front
         # e.g. we passed PeriodIndex.values and got an ndarray of Periods
@@ -712,12 +697,12 @@ class DatetimeLikeArrayMixin(OpsMixin, NDArrayBackedExtensionArray):
             except ValueError:
                 pass
 
-        if is_categorical_dtype(value.dtype):
-            # e.g. we have a Categorical holding self.dtype
-            if is_dtype_equal(value.categories.dtype, self.dtype):
-                # TODO: do we need equal dtype or just comparable?
-                value = value._internal_get_values()
-                value = extract_array(value, extract_numpy=True)
+        if is_categorical_dtype(value.dtype) and is_dtype_equal(
+            value.categories.dtype, self.dtype
+        ):
+            # TODO: do we need equal dtype or just comparable?
+            value = value._internal_get_values()
+            value = extract_array(value, extract_numpy=True)
 
         if allow_object and is_object_dtype(value.dtype):
             pass
@@ -795,16 +780,16 @@ class DatetimeLikeArrayMixin(OpsMixin, NDArrayBackedExtensionArray):
             return np.zeros(self.shape, dtype=bool)
 
         if not isinstance(values, type(self)):
-            inferable = [
-                "timedelta",
-                "timedelta64",
-                "datetime",
-                "datetime64",
-                "date",
-                "period",
-            ]
             if values.dtype == object:
                 inferred = lib.infer_dtype(values, skipna=False)
+                inferable = [
+                    "timedelta",
+                    "timedelta64",
+                    "datetime",
+                    "datetime64",
+                    "date",
+                    "period",
+                ]
                 if inferred not in inferable:
                     if inferred == "string":
                         pass
@@ -900,9 +885,7 @@ class DatetimeLikeArrayMixin(OpsMixin, NDArrayBackedExtensionArray):
         """
         Return the frequency object as a string if its set, otherwise None.
         """
-        if self.freq is None:
-            return None
-        return self.freq.freqstr
+        return None if self.freq is None else self.freq.freqstr
 
     @property  # NB: override with cache_readonly in immutable subclasses
     def inferred_freq(self) -> str | None:
@@ -1745,11 +1728,7 @@ class TimelikeOps(DatetimeLikeArrayMixin):
         if freq is None:
             # Always valid
             pass
-        elif len(self) == 0 and isinstance(freq, BaseOffset):
-            # Always valid.  In the TimedeltaArray case, we assume this
-            #  is a Tick offset.
-            pass
-        else:
+        elif len(self) != 0 or not isinstance(freq, BaseOffset):
             # As an internal method, we can ensure this assertion always holds
             assert freq == "infer"
             freq = to_offset(self.inferred_freq)

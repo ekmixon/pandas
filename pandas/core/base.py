@@ -117,8 +117,7 @@ class PandasObject(DirNamesMixin):
         Generates the total memory usage for an object that returns
         either a value or Series of values
         """
-        memory_usage = getattr(self, "memory_usage", None)
-        if memory_usage:
+        if memory_usage := getattr(self, "memory_usage", None):
             mem = memory_usage(deep=True)
             return int(mem if is_scalar(mem) else mem.sum())
 
@@ -183,11 +182,13 @@ class SelectionMixin(Generic[FrameOrSeries]):
     @final
     @property
     def _selection_list(self):
-        if not isinstance(
-            self._selection, (list, tuple, ABCSeries, ABCIndex, np.ndarray)
-        ):
-            return [self._selection]
-        return self._selection
+        return (
+            self._selection
+            if isinstance(
+                self._selection, (list, tuple, ABCSeries, ABCIndex, np.ndarray)
+            )
+            else [self._selection]
+        )
 
     @cache_readonly
     def _selected_obj(self):
@@ -531,8 +532,8 @@ class IndexOpsMixin(OpsMixin):
         # TODO(GH-24345): Avoid potential double copy
         if copy or na_value is not lib.no_default:
             result = result.copy()
-            if na_value is not lib.no_default:
-                result[self.isna()] = na_value
+        if na_value is not lib.no_default:
+            result[self.isna()] = na_value
         return result
 
     @property
@@ -640,10 +641,7 @@ class IndexOpsMixin(OpsMixin):
         skipna = nv.validate_argmax_with_skipna(skipna, args, kwargs)
 
         if isinstance(delegate, ExtensionArray):
-            if not skipna and delegate.isna().any():
-                return -1
-            else:
-                return delegate.argmax()
+            return -1 if not skipna and delegate.isna().any() else delegate.argmax()
         else:
             # error: Incompatible return value type (got "Union[int, ndarray]", expected
             # "int")
@@ -702,10 +700,7 @@ class IndexOpsMixin(OpsMixin):
         skipna = nv.validate_argmin_with_skipna(skipna, args, kwargs)
 
         if isinstance(delegate, ExtensionArray):
-            if not skipna and delegate.isna().any():
-                return -1
-            else:
-                return delegate.argmin()
+            return -1 if not skipna and delegate.isna().any() else delegate.argmin()
         else:
             # error: Incompatible return value type (got "Union[int, ndarray]", expected
             # "int")
@@ -730,10 +725,11 @@ class IndexOpsMixin(OpsMixin):
         numpy.ndarray.tolist : Return the array as an a.ndim-levels deep
             nested list of Python scalars.
         """
-        if not isinstance(self._values, np.ndarray):
-            # check for ndarray instead of dtype to catch DTA/TDA
-            return list(self._values)
-        return self._values.tolist()
+        return (
+            self._values.tolist()
+            if isinstance(self._values, np.ndarray)
+            else list(self._values)
+        )
 
     to_list = tolist
 
@@ -750,11 +746,11 @@ class IndexOpsMixin(OpsMixin):
         iterator
         """
         # We are explicitly making element iterators.
-        if not isinstance(self._values, np.ndarray):
-            # Check type instead of dtype to catch DTA/TDA
-            return iter(self._values)
-        else:
-            return map(self._values.item, range(self._values.size))
+        return (
+            map(self._values.item, range(self._values.size))
+            if isinstance(self._values, np.ndarray)
+            else iter(self._values)
+        )
 
     @cache_readonly
     def hasnans(self) -> bool:
@@ -974,10 +970,12 @@ class IndexOpsMixin(OpsMixin):
 
         if not isinstance(values, np.ndarray):
             result: ArrayLike = values.unique()
-            if self.dtype.kind in ["m", "M"] and isinstance(self, ABCSeries):
-                # GH#31182 Series._values returns EA, unpack for backward-compat
-                if getattr(self.dtype, "tz", None) is None:
-                    result = np.asarray(result)
+            if (
+                self.dtype.kind in ["m", "M"]
+                and isinstance(self, ABCSeries)
+                and getattr(self.dtype, "tz", None) is None
+            ):
+                result = np.asarray(result)
         else:
             result = unique1d(values)
 

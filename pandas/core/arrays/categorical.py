@@ -123,7 +123,7 @@ CategoricalT = TypeVar("CategoricalT", bound="Categorical")
 
 def _cat_compare_op(op):
     opname = f"__{op.__name__}__"
-    fill_value = True if op is operator.ne else False
+    fill_value = op is operator.ne
 
     @unpack_zerodim_and_defer(opname)
     def func(self, other):
@@ -132,11 +132,15 @@ def _cat_compare_op(op):
             # in hashable case we may have a tuple that is itself a category
             raise ValueError("Lengths must match.")
 
-        if not self.ordered:
-            if opname in ["__lt__", "__gt__", "__le__", "__ge__"]:
-                raise TypeError(
-                    "Unordered Categoricals can only compare equality or not"
-                )
+        if not self.ordered and opname in [
+            "__lt__",
+            "__gt__",
+            "__le__",
+            "__ge__",
+        ]:
+            raise TypeError(
+                "Unordered Categoricals can only compare equality or not"
+            )
         if isinstance(other, Categorical):
             # Two Categoricals can only be compared if the categories are
             # the same (maybe up to ordering, depending on ordered)
@@ -1395,11 +1399,11 @@ class Categorical(NDArrayBackedExtensionArray, PandasObject, ObjectStringArrayMi
     # Validators; ideally these can be de-duplicated
 
     def _validate_setitem_value(self, value):
-        if not is_hashable(value):
-            # wrap scalars and hashable-listlikes in list
-            return self._validate_listlike(value)
-        else:
-            return self._validate_scalar(value)
+        return (
+            self._validate_scalar(value)
+            if is_hashable(value)
+            else self._validate_listlike(value)
+        )
 
     _validate_searchsorted_value = _validate_setitem_value
 
@@ -1858,9 +1862,7 @@ class Categorical(NDArrayBackedExtensionArray, PandasObject, ObjectStringArrayMi
         NDArrayBacked.__init__(self, value, self.dtype)
 
     def _box_func(self, i: int):
-        if i == -1:
-            return np.NaN
-        return self.categories[i]
+        return np.NaN if i == -1 else self.categories[i]
 
     def _unbox_scalar(self, key) -> int:
         # searchsorted is very performance sensitive. By converting codes
@@ -1992,14 +1994,12 @@ class Categorical(NDArrayBackedExtensionArray, PandasObject, ObjectStringArrayMi
         """
         _maxlen = 10
         if len(self._codes) > _maxlen:
-            result = self._tidy_repr(_maxlen)
+            return self._tidy_repr(_maxlen)
         elif len(self._codes) > 0:
-            result = self._get_repr(length=len(self) > _maxlen)
+            return self._get_repr(length=len(self) > _maxlen)
         else:
             msg = self._get_repr(length=False, footer=True).replace("\n", ", ")
-            result = f"[], {msg}"
-
-        return result
+            return f"[], {msg}"
 
     # ------------------------------------------------------------------
 
@@ -2109,13 +2109,12 @@ class Categorical(NDArrayBackedExtensionArray, PandasObject, ObjectStringArrayMi
             return self.dtype.na_value
 
         good = self._codes != -1
-        if not good.all():
-            if skipna and good.any():
-                pointer = self._codes[good].min()
-            else:
-                return np.nan
-        else:
+        if good.all():
             pointer = self._codes.min()
+        elif skipna and good.any():
+            pointer = self._codes[good].min()
+        else:
+            return np.nan
         return self._wrap_reduction_result(None, pointer)
 
     @deprecate_kwarg(old_arg_name="numeric_only", new_arg_name="skipna")
@@ -2146,13 +2145,12 @@ class Categorical(NDArrayBackedExtensionArray, PandasObject, ObjectStringArrayMi
             return self.dtype.na_value
 
         good = self._codes != -1
-        if not good.all():
-            if skipna and good.any():
-                pointer = self._codes[good].max()
-            else:
-                return np.nan
-        else:
+        if good.all():
             pointer = self._codes.max()
+        elif skipna and good.any():
+            pointer = self._codes[good].max()
+        else:
+            return np.nan
         return self._wrap_reduction_result(None, pointer)
 
     def mode(self, dropna=True):
@@ -2696,22 +2694,16 @@ def recode_for_categories(
     >>> recode_for_categories(codes, old_cat, new_cat)
     array([ 1,  0,  0, -1], dtype=int8)
     """
-    if len(old_categories) == 0:
-        # All null anyway, so just retain the nulls
-        if copy:
-            return codes.copy()
-        return codes
-    elif new_categories.equals(old_categories):
-        # Same categories, so no need to actually recode
-        if copy:
-            return codes.copy()
-        return codes
-
+    if (
+        len(old_categories) == 0
+        or len(old_categories) != 0
+        and new_categories.equals(old_categories)
+    ):
+        return codes.copy() if copy else codes
     indexer = coerce_indexer_dtype(
         new_categories.get_indexer(old_categories), new_categories
     )
-    new_codes = take_nd(indexer, codes, fill_value=-1)
-    return new_codes
+    return take_nd(indexer, codes, fill_value=-1)
 
 
 def factorize_from_iterable(values) -> tuple[np.ndarray, Index]:

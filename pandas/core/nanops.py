@@ -176,9 +176,8 @@ def _bn_ok_dtype(dtype: DtypeObj, name: str) -> bool:
 
 
 def _has_infs(result) -> bool:
-    if isinstance(result, np.ndarray):
-        if result.dtype == "f8" or result.dtype == "f4":
-            return lib.has_infs(result.ravel("K"))
+    if isinstance(result, np.ndarray) and result.dtype in ["f8", "f4"]:
+        return lib.has_infs(result.ravel("K"))
     try:
         return np.isinf(result).any()
     except (TypeError, NotImplementedError):
@@ -192,20 +191,12 @@ def _get_fill_value(
     """return the correct fill value for the dtype of the values"""
     if fill_value is not None:
         return fill_value
-    if _na_ok_dtype(dtype):
-        if fill_value_typ is None:
-            return np.nan
-        else:
-            if fill_value_typ == "+inf":
-                return np.inf
-            else:
-                return -np.inf
+    if not _na_ok_dtype(dtype):
+        return lib.i8max if fill_value_typ == "+inf" else iNaT
+    if fill_value_typ is None:
+        return np.nan
     else:
-        if fill_value_typ == "+inf":
-            # need the max int here
-            return lib.i8max
-        else:
-            return iNaT
+        return np.inf if fill_value_typ == "+inf" else -np.inf
 
 
 def _maybe_get_mask(
@@ -322,14 +313,18 @@ def _get_values(
         dtype, fill_value=fill_value, fill_value_typ=fill_value_typ
     )
 
-    if skipna and (mask is not None) and (fill_value is not None):
-        if mask.any():
-            if dtype_ok or datetimelike:
-                values = values.copy()
-                np.putmask(values, mask, fill_value)
-            else:
-                # np.where will promote if needed
-                values = np.where(~mask, values, fill_value)
+    if (
+        skipna
+        and (mask is not None)
+        and (fill_value is not None)
+        and mask.any()
+    ):
+        if dtype_ok or datetimelike:
+            values = values.copy()
+            np.putmask(values, mask, fill_value)
+        else:
+            # np.where will promote if needed
+            values = np.where(~mask, values, fill_value)
 
     # return a platform independent precision dtype
     dtype_max = dtype
@@ -439,14 +434,11 @@ def _na_for_min_count(values: np.ndarray, axis: int | None) -> Scalar | np.ndarr
         values = values.astype("float64")
     fill_value = na_value_for_dtype(values.dtype)
 
-    if values.ndim == 1:
+    if values.ndim == 1 or axis is None:
         return fill_value
-    elif axis is None:
-        return fill_value
-    else:
-        result_shape = values.shape[:axis] + values.shape[axis + 1 :]
+    result_shape = values.shape[:axis] + values.shape[axis + 1 :]
 
-        return np.full(result_shape, fill_value, dtype=values.dtype)
+    return np.full(result_shape, fill_value, dtype=values.dtype)
 
 
 def nanany(
@@ -602,9 +594,8 @@ def _mask_datetimelike_result(
         # error: Unsupported target for indexed assignment ("Union[ndarray[Any, Any],
         # datetime64, timedelta64]")
         result[axis_mask] = iNaT  # type: ignore[index]
-    else:
-        if mask.any():
-            return NaT
+    elif mask.any():
+        return NaT
     return result
 
 
@@ -986,15 +977,15 @@ def nansem(
 
 
 def _nanminmax(meth, fill_value_typ):
-    @bottleneck_switch(name="nan" + meth)
+    @bottleneck_switch(name=f"nan{meth}")
     @_datetimelike_compat
     def reduction(
-        values: np.ndarray,
-        *,
-        axis: int | None = None,
-        skipna: bool = True,
-        mask: np.ndarray | None = None,
-    ) -> Dtype:
+            values: np.ndarray,
+            *,
+            axis: int | None = None,
+            skipna: bool = True,
+            mask: np.ndarray | None = None,
+        ) -> Dtype:
 
         values, mask, dtype, dtype_max, fill_value = _get_values(
             values, skipna, fill_value_typ=fill_value_typ, mask=mask
@@ -1346,21 +1337,12 @@ def _maybe_arg_null_out(
         return result
 
     if axis is None or not getattr(result, "ndim", False):
-        if skipna:
-            if mask.all():
-                # error: Incompatible types in assignment (expression has type
-                # "int", variable has type "ndarray")
-                result = -1  # type: ignore[assignment]
-        else:
-            if mask.any():
-                # error: Incompatible types in assignment (expression has type
-                # "int", variable has type "ndarray")
-                result = -1  # type: ignore[assignment]
+        if skipna and mask.all() or not skipna and mask.any():
+            # error: Incompatible types in assignment (expression has type
+            # "int", variable has type "ndarray")
+            result = -1  # type: ignore[assignment]
     else:
-        if skipna:
-            na_mask = mask.all(axis)
-        else:
-            na_mask = mask.any(axis)
+        na_mask = mask.all(axis) if skipna else mask.any(axis)
         if na_mask.any():
             result[na_mask] = -1
     return result
@@ -1392,10 +1374,7 @@ def _get_counts(
     """
     dtype = get_dtype(dtype)
     if axis is None:
-        if mask is not None:
-            n = mask.size - mask.sum()
-        else:
-            n = np.prod(values_shape)
+        n = mask.size - mask.sum() if mask is not None else np.prod(values_shape)
         return dtype.type(n)
 
     if mask is not None:
@@ -1475,23 +1454,17 @@ def check_below_min_count(
     bool
     """
     if min_count > 0:
-        if mask is None:
-            # no missing values, only check size
-            non_nulls = np.prod(shape)
-        else:
-            non_nulls = mask.size - mask.sum()
+        non_nulls = np.prod(shape) if mask is None else mask.size - mask.sum()
         if non_nulls < min_count:
             return True
     return False
 
 
 def _zero_out_fperr(arg):
-    # #18044 reference this behavior to fix rolling skew/kurt issue
-    if isinstance(arg, np.ndarray):
-        with np.errstate(invalid="ignore"):
-            return np.where(np.abs(arg) < 1e-14, 0, arg)
-    else:
+    if not isinstance(arg, np.ndarray):
         return arg.dtype.type(0) if np.abs(arg) < 1e-14 else arg
+    with np.errstate(invalid="ignore"):
+        return np.where(np.abs(arg) < 1e-14, 0, arg)
 
 
 @disallow("M8", "m8")
@@ -1568,10 +1541,7 @@ def nancov(
         a = a[valid]
         b = b[valid]
 
-    if len(a) < min_periods:
-        return np.nan
-
-    return np.cov(a, b, ddof=ddof)[0, 1]
+    return np.nan if len(a) < min_periods else np.cov(a, b, ddof=ddof)[0, 1]
 
 
 def _ensure_numeric(x):
@@ -1703,17 +1673,16 @@ def nanpercentile(
         #  have float result at this point, not i8
         return result.astype(values.dtype)
 
-    if not lib.is_scalar(mask) and mask.any():
-        # Caller is responsible for ensuring mask shape match
-        assert mask.shape == values.shape
-        result = [
-            _nanpercentile_1d(val, m, q, na_value, interpolation=interpolation)
-            for (val, m) in zip(list(values), list(mask))
-        ]
-        result = np.array(result, dtype=values.dtype, copy=False).T
-        return result
-    else:
+    if lib.is_scalar(mask) or not mask.any():
         return np.percentile(values, q, axis=1, interpolation=interpolation)
+    # Caller is responsible for ensuring mask shape match
+    assert mask.shape == values.shape
+    result = [
+        _nanpercentile_1d(val, m, q, na_value, interpolation=interpolation)
+        for (val, m) in zip(list(values), list(mask))
+    ]
+    result = np.array(result, dtype=values.dtype, copy=False).T
+    return result
 
 
 def na_accum_func(values: ArrayLike, accum_func, *, skipna: bool) -> ArrayLike:

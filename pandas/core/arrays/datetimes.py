@@ -104,10 +104,7 @@ def tz_to_dtype(tz):
     -------
     np.dtype or Datetime64TZDType
     """
-    if tz is None:
-        return DT64NS_DTYPE
-    else:
-        return DatetimeTZDtype(tz=tz)
+    return DT64NS_DTYPE if tz is None else DatetimeTZDtype(tz=tz)
 
 
 def _field_accessor(name, field, docstring=None):
@@ -500,10 +497,8 @@ class DatetimeArray(dtl.TimelikeOps, dtl.DatelikeOps):
         if other is NaT:
             return
         self._assert_tzawareness_compat(other)
-        if setitem:
-            # Stricter check for setitem vs comparison methods
-            if not timezones.tz_compare(self.tz, other.tz):
-                raise ValueError(f"Timezones don't match. '{self.tz}' != '{other.tz}'")
+        if setitem and not timezones.tz_compare(self.tz, other.tz):
+            raise ValueError(f"Timezones don't match. '{self.tz}' != '{other.tz}'")
 
     # -----------------------------------------------------------------
     # Descriptive Properties
@@ -622,10 +617,12 @@ class DatetimeArray(dtl.TimelikeOps, dtl.DatelikeOps):
                 for i in range(chunks):
                     start_i = i * chunksize
                     end_i = min((i + 1) * chunksize, length)
-                    converted = ints_to_pydatetime(
-                        data[start_i:end_i], tz=self.tz, freq=self.freq, box="timestamp"
+                    yield from ints_to_pydatetime(
+                        data[start_i:end_i],
+                        tz=self.tz,
+                        freq=self.freq,
+                        box="timestamp",
                     )
-                    yield from converted
 
     def astype(self, dtype, copy: bool = True):
         # We handle
@@ -635,10 +632,7 @@ class DatetimeArray(dtl.TimelikeOps, dtl.DatelikeOps):
         dtype = pandas_dtype(dtype)
 
         if is_dtype_equal(dtype, self.dtype):
-            if copy:
-                return self.copy()
-            return self
-
+            return self.copy() if copy else self
         elif is_datetime64_ns_dtype(dtype):
             return astype_dt64_to_dt64tz(self, dtype, copy, via_utc=False)
 
@@ -734,10 +728,7 @@ class DatetimeArray(dtl.TimelikeOps, dtl.DatelikeOps):
 
         assert not isinstance(offset, Tick)
         try:
-            if self.tz is not None:
-                values = self.tz_localize(None)
-            else:
-                values = self
+            values = self.tz_localize(None) if self.tz is not None else self
             result = offset._apply_array(values).view("M8[ns]")
             result = DatetimeArray._simple_new(result)
             result = result.tz_localize(self.tz)
@@ -1017,18 +1008,17 @@ default 'raise'
                 "a timedelta object"
             )
 
-        if self.tz is not None:
-            if tz is None:
-                new_dates = tzconversion.tz_convert_from_utc(self.asi8, self.tz)
-            else:
-                raise TypeError("Already tz-aware, use tz_convert to convert.")
-        else:
+        if self.tz is None:
             tz = timezones.maybe_get_tz(tz)
             # Convert to UTC
 
             new_dates = tzconversion.tz_localize_to_utc(
                 self.asi8, tz, ambiguous=ambiguous, nonexistent=nonexistent
             )
+        elif tz is None:
+            new_dates = tzconversion.tz_convert_from_utc(self.asi8, self.tz)
+        else:
+            raise TypeError("Already tz-aware, use tz_convert to convert.")
         new_dates = new_dates.view(DT64NS_DTYPE)
         dtype = tz_to_dtype(tz)
 
@@ -1966,8 +1956,7 @@ def sequence_to_datetimes(
         return result
 
     dtype = tz_to_dtype(tz)
-    dta = DatetimeArray._simple_new(result, freq=freq, dtype=dtype)
-    return dta
+    return DatetimeArray._simple_new(result, freq=freq, dtype=dtype)
 
 
 def sequence_to_dt64ns(
@@ -2016,8 +2005,6 @@ def sequence_to_dt64ns(
     TypeError : PeriodDType data is passed
     """
 
-    inferred_freq = None
-
     dtype = _validate_dt64_dtype(dtype)
     tz = timezones.maybe_get_tz(tz)
 
@@ -2042,9 +2029,7 @@ def sequence_to_dt64ns(
         # GH#24539 e.g. xarray, dask object
         data = np.asarray(data)
 
-    if isinstance(data, DatetimeArray):
-        inferred_freq = data.freq
-
+    inferred_freq = data.freq if isinstance(data, DatetimeArray) else None
     # By this point we are assured to have either a numpy array or Index
     data, copy = maybe_convert_dtype(data, copy)
     data_dtype = getattr(data, "dtype", None)
@@ -2389,14 +2374,16 @@ def validate_tz_from_dtype(dtype, tz: tzinfo | None) -> tzinfo | None:
                 raise ValueError("cannot supply both a tz and a dtype with a tz")
             tz = dtz
 
-        if tz is not None and is_datetime64_dtype(dtype):
-            # We also need to check for the case where the user passed a
-            #  tz-naive dtype (i.e. datetime64[ns])
-            if tz is not None and not timezones.tz_compare(tz, dtz):
-                raise ValueError(
-                    "cannot supply both a tz and a "
-                    "timezone-naive dtype (i.e. datetime64[ns])"
-                )
+        if (
+            tz is not None
+            and is_datetime64_dtype(dtype)
+            and tz is not None
+            and not timezones.tz_compare(tz, dtz)
+        ):
+            raise ValueError(
+                "cannot supply both a tz and a "
+                "timezone-naive dtype (i.e. datetime64[ns])"
+            )
 
     return tz
 

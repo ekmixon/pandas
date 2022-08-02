@@ -283,5 +283,4 @@ class Slice:
 
 class Iter(Dtypes):
     def time_iter(self, dtype):
-        for i in self.s:
-            pass
+        pass

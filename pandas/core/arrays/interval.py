@@ -1114,29 +1114,25 @@ class IntervalArray(IntervalMixin, ExtensionArray):
         formatter = str
 
         if n == 0:
-            summary = "[]"
+            return "[]"
         elif n == 1:
             first = formatter(self[0])
-            summary = f"[{first}]"
+            return f"[{first}]"
         elif n == 2:
             first = formatter(self[0])
             last = formatter(self[-1])
-            summary = f"[{first}, {last}]"
+            return f"[{first}, {last}]"
+        elif n > max_seq_items:
+            n = min(max_seq_items // 2, 10)
+            head = [formatter(x) for x in self[:n]]
+            tail = [formatter(x) for x in self[-n:]]
+            head_str = ", ".join(head)
+            tail_str = ", ".join(tail)
+            return f"[{head_str} ... {tail_str}]"
         else:
-
-            if n > max_seq_items:
-                n = min(max_seq_items // 2, 10)
-                head = [formatter(x) for x in self[:n]]
-                tail = [formatter(x) for x in self[-n:]]
-                head_str = ", ".join(head)
-                tail_str = ", ".join(tail)
-                summary = f"[{head_str} ... {tail_str}]"
-            else:
-                tail = [formatter(x) for x in self]
-                tail_str = ", ".join(tail)
-                summary = f"[{tail_str}]"
-
-        return summary
+            tail = [formatter(x) for x in self]
+            tail_str = ", ".join(tail)
+            return f"[{tail_str}]"
 
     def __repr__(self) -> str:
         # the short repr has no trailing newline, while the truncated
@@ -1145,8 +1141,7 @@ class IntervalArray(IntervalMixin, ExtensionArray):
         data = self._format_data()
         class_name = f"<{type(self).__name__}>\n"
 
-        template = f"{class_name}{data}\nLength: {len(self)}, dtype: {self.dtype}"
-        return template
+        return f"{class_name}{data}\nLength: {len(self)}, dtype: {self.dtype}"
 
     def _format_space(self) -> str:
         space = " " * (len(type(self).__name__) + 1)
@@ -1382,10 +1377,7 @@ class IntervalArray(IntervalMixin, ExtensionArray):
 
         result = np.empty(len(left), dtype=object)
         for i in range(len(left)):
-            if mask[i]:
-                result[i] = np.nan
-            else:
-                result[i] = Interval(left[i], right[i], closed)
+            result[i] = np.nan if mask[i] else Interval(left[i], right[i], closed)
         return result
 
     def __arrow_array__(self, type=None):
@@ -1605,11 +1597,11 @@ class IntervalArray(IntervalMixin, ExtensionArray):
     def _combined(self) -> ArrayLike:
         left = self.left._values.reshape(-1, 1)
         right = self.right._values.reshape(-1, 1)
-        if needs_i8_conversion(left.dtype):
-            comb = left._concat_same_type([left, right], axis=1)
-        else:
-            comb = np.concatenate([left, right], axis=1)
-        return comb
+        return (
+            left._concat_same_type([left, right], axis=1)
+            if needs_i8_conversion(left.dtype)
+            else np.concatenate([left, right], axis=1)
+        )
 
     def _from_combined(self, combined: np.ndarray) -> IntervalArray:
         """
@@ -1667,6 +1659,4 @@ def _maybe_convert_platform_interval(values) -> ArrayLike:
     else:
         values = extract_array(values, extract_numpy=True)
 
-    if not hasattr(values, "dtype"):
-        return np.asarray(values)
-    return values
+    return values if hasattr(values, "dtype") else np.asarray(values)

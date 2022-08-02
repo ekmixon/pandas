@@ -147,10 +147,7 @@ class Pairwise:
         self.df_group = pd.DataFrame({"A": groups, "B": arr}).groupby("A")
 
     def time_pairwise(self, window, method, pairwise):
-        if window is None:
-            r = self.df.expanding()
-        else:
-            r = self.df.rolling(window=window)
+        r = self.df.expanding() if window is None else self.df.rolling(window=window)
         getattr(r, method)(self.df, pairwise=pairwise)
 
     def time_groupby(self, window, method, pairwise):
@@ -190,7 +187,7 @@ class PeakMemFixedWindowMinMax:
         self.roll = pd.Series(arr).rolling(2)
 
     def peakmem_fixed(self, operation):
-        for x in range(5):
+        for _ in range(5):
             getattr(self.roll, operation)()
 
 

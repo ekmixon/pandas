@@ -117,12 +117,7 @@ class BooleanDtype(BaseMaskedDtype):
         if array.type != pyarrow.bool_():
             raise TypeError(f"Expected array of boolean type, got {array.type} instead")
 
-        if isinstance(array, pyarrow.Array):
-            chunks = [array]
-        else:
-            # pyarrow.ChunkedArray
-            chunks = array.chunks
-
+        chunks = [array] if isinstance(array, pyarrow.Array) else array.chunks
         results = []
         for arr in chunks:
             buflist = arr.buffers()
@@ -140,12 +135,13 @@ class BooleanDtype(BaseMaskedDtype):
             bool_arr = BooleanArray(data, mask)
             results.append(bool_arr)
 
-        if not results:
-            return BooleanArray(
+        return (
+            BooleanArray._concat_same_type(results)
+            if results
+            else BooleanArray(
                 np.array([], dtype=np.bool_), np.array([], dtype=np.bool_)
             )
-        else:
-            return BooleanArray._concat_same_type(results)
+        )
 
 
 def coerce_to_array(
@@ -215,17 +211,16 @@ def coerce_to_array(
         mask = np.zeros(len(values), dtype=bool)
     elif mask is None:
         mask = mask_values
-    else:
-        if isinstance(mask, np.ndarray) and mask.dtype == np.bool_:
-            if mask_values is not None:
-                mask = mask | mask_values
-            else:
-                if copy:
-                    mask = mask.copy()
+    elif isinstance(mask, np.ndarray) and mask.dtype == np.bool_:
+        if mask_values is None:
+            if copy:
+                mask = mask.copy()
         else:
-            mask = np.array(mask, dtype=bool)
-            if mask_values is not None:
-                mask = mask | mask_values
+            mask = mask | mask_values
+    else:
+        mask = np.array(mask, dtype=bool)
+        if mask_values is not None:
+            mask = mask | mask_values
 
     if values.ndim != 1:
         raise ValueError("values must be a 1D list-like")
@@ -520,11 +515,10 @@ class BooleanArray(BaseMaskedArray):
         result = values.any()
         if skipna:
             return result
+        if result or len(self) == 0 or not self._mask.any():
+            return result
         else:
-            if result or len(self) == 0 or not self._mask.any():
-                return result
-            else:
-                return self.dtype.na_value
+            return self.dtype.na_value
 
     def all(self, *, skipna: bool = True, **kwargs):
         """
@@ -587,11 +581,10 @@ class BooleanArray(BaseMaskedArray):
 
         if skipna:
             return result
+        if not result or len(self) == 0 or not self._mask.any():
+            return result
         else:
-            if not result or len(self) == 0 or not self._mask.any():
-                return result
-            else:
-                return self.dtype.na_value
+            return self.dtype.na_value
 
     def _logical_method(self, other, op):
 
@@ -665,11 +658,7 @@ class BooleanArray(BaseMaskedArray):
                     result = op(self._data, other)
 
             # nans propagate
-            if mask is None:
-                mask = self._mask.copy()
-            else:
-                mask = self._mask | mask
-
+            mask = self._mask.copy() if mask is None else self._mask | mask
         return BooleanArray(result, mask, copy=False)
 
     def _arith_method(self, other, op):
@@ -740,9 +729,10 @@ class BooleanArray(BaseMaskedArray):
         # if we have a float operand we are by-definition
         # a float result
         # or our op is a divide
-        if (is_float_dtype(other) or is_float(other)) or (
-            op_name in ["rtruediv", "truediv"]
-        ):
+        if (is_float_dtype(other) or is_float(other)) or op_name in {
+            "rtruediv",
+            "truediv",
+        }:
             from pandas.core.arrays import FloatingArray
 
             return FloatingArray(result, mask, copy=False)
